@@ -1,0 +1,182 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local StarterGui = game:GetService("StarterGui")
+
+local player = Players.LocalPlayer
+local flying, noclip, infJump = false, false, false
+local flySpeed = 50
+local bv, bg
+
+local function notify(text)
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {Title = "CMD", Text = text, Duration = 3})
+    end)
+end
+
+local function getHum()
+    return player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+end
+
+local function getRoot()
+    return player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+end
+
+-- FLY
+local function stopFly()
+    flying = false
+    if bv then bv:Destroy() bv = nil end
+    if bg then bg:Destroy() bg = nil end
+    local hum = getHum()
+    if hum then hum.PlatformStand = false end
+end
+
+local function startFly()
+    local root, hum = getRoot(), getHum()
+    if not root or not hum then return end
+    stopFly()
+    flying = true
+    hum.PlatformStand = true
+    bv = Instance.new("BodyVelocity")
+    bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+    bv.Velocity = Vector3.zero
+    bv.Parent = root
+    bg = Instance.new("BodyGyro")
+    bg.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
+    bg.P = 9e4
+    bg.Parent = root
+end
+
+RunService.RenderStepped:Connect(function()
+    if flying and bv and bg then
+        local cam = workspace.CurrentCamera
+        local dir = Vector3.zero
+        if UIS:IsKeyDown(Enum.KeyCode.W) then dir += cam.CFrame.LookVector end
+        if UIS:IsKeyDown(Enum.KeyCode.S) then dir -= cam.CFrame.LookVector end
+        if UIS:IsKeyDown(Enum.KeyCode.A) then dir -= cam.CFrame.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.D) then dir += cam.CFrame.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.Space) then dir += Vector3.yAxis end
+        if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then dir -= Vector3.yAxis end
+        bv.Velocity = dir.Magnitude > 0 and dir.Unit * flySpeed or Vector3.zero
+        bg.CFrame = cam.CFrame
+    end
+end)
+
+-- NOCLIP
+RunService.Stepped:Connect(function()
+    if noclip and player.Character then
+        for _, p in ipairs(player.Character:GetDescendants()) do
+            if p:IsA("BasePart") then p.CanCollide = false end
+        end
+    end
+end)
+
+-- INFINITE JUMP
+UIS.JumpRequest:Connect(function()
+    if infJump then
+        local hum = getHum()
+        if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+    end
+end)
+
+-- CARI PLAYER (nama sebagian juga bisa)
+local function findPlayer(name)
+    name = name:lower()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p.Name:lower():sub(1, #name) == name or p.DisplayName:lower():sub(1, #name) == name then
+            return p
+        end
+    end
+end
+
+-- DAFTAR COMMAND
+local commands = {
+    speed = function(n)
+        local hum = getHum()
+        if hum then hum.WalkSpeed = tonumber(n) or 16 end
+    end,
+    jump = function(n)
+        local hum = getHum()
+        if hum then
+            hum.UseJumpPower = true
+            hum.JumpPower = tonumber(n) or 50
+        end
+    end,
+    fly = function(n)
+        flySpeed = tonumber(n) or 50
+        startFly()
+    end,
+    unfly = stopFly,
+    noclip = function() noclip = true end,
+    clip = function() noclip = false end,
+    infjump = function() infJump = true end,
+    uninfjump = function() infJump = false end,
+    tp = function(name)
+        local target = name and findPlayer(name)
+        local root = getRoot()
+        if target and target.Character and root then
+            local tr = target.Character:FindFirstChild("HumanoidRootPart")
+            if tr then root.CFrame = tr.CFrame end
+        else
+            notify("Player tidak ditemukan")
+        end
+    end,
+    reset = function()
+        local hum = getHum()
+        if hum then hum.Health = 0 end
+    end,
+    help = function()
+        notify("speed, jump, fly, unfly, noclip, clip, infjump, uninfjump, tp, reset")
+    end,
+}
+
+local function run(text)
+    local args = text:split(" ")
+    local cmd = table.remove(args, 1)
+    if not cmd or cmd == "" then return end
+    local fn = commands[cmd:lower()]
+    if fn then
+        local ok, err = pcall(fn, table.unpack(args))
+        if not ok then notify("Error: " .. tostring(err)) end
+    else
+        notify("Command tidak ada. Ketik: help")
+    end
+end
+
+-- COMMAND BAR (tekan ; untuk membuka)
+local gui = Instance.new("ScreenGui")
+gui.Name = "CmdBar"
+gui.ResetOnSpawn = false
+local okParent = pcall(function()
+    gui.Parent = (gethui and gethui()) or game:GetService("CoreGui")
+end)
+if not okParent or not gui.Parent then
+    gui.Parent = player:WaitForChild("PlayerGui")
+end
+
+local box = Instance.new("TextBox")
+box.Size = UDim2.new(0, 320, 0, 36)
+box.Position = UDim2.new(0.5, -160, 1, -70)
+box.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+box.TextColor3 = Color3.new(1, 1, 1)
+box.PlaceholderText = "Tekan ; lalu ketik command (contoh: speed 50)"
+box.Text = ""
+box.ClearTextOnFocus = false
+box.Font = Enum.Font.Code
+box.TextSize = 16
+box.Parent = gui
+
+box.FocusLost:Connect(function(enter)
+    if enter then run(box.Text) end
+    box.Text = ""
+end)
+
+UIS.InputBegan:Connect(function(input, processed)
+    if not processed and input.KeyCode == Enum.KeyCode.Semicolon then
+        task.wait()
+        box:CaptureFocus()
+        box.Text = ""
+    end
+end)
+
+notify("Aktif! Tekan ; lalu ketik command. Ketik: help")
